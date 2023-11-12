@@ -1,31 +1,25 @@
 package main
 
-import "fmt"
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"time"
+)
 
 func main() {
 
-	ts := make([]Transaction, 100)
-	for i := 0; i < 100; i++ {
-		ts[i].__value = random_string(10)
-		ts[i].__not_null = true
+	bootstrap_address := Address{Port: 8080}
+	go peer_main(bootstrap_address, 20, true, false, true, Address{}, 4, 6)
+	for i := 8081; i <= 8083; i++ {
+		go peer_main(Address{Port: uint16(i)}, 20, false, i%2 == 1, i%2 == 0, bootstrap_address, 4, 6)
 	}
 
-	blockchain := create_blockchain()
+	time.Sleep(30 * time.Second)
 
-	last_hash := Hash{}
-	for i := 0; i < 5; i++ {
+	go peer_main(Address{Port: 8086}, 20, false, true, true, bootstrap_address, 4, 6)
 
-		merkel_tree := create_merkel_tree()
-		for j := 0; j < 4; j++ {
-			merkel_tree.add_transaction(ts[i*4+j])
-		}
-		merkel_tree.build()
-		block := create_block(merkel_tree.hashed(), last_hash, 12)
-		block.mine()
-		last_hash = block.hashed()
-		blockchain.add_block(*block)
-		blockchain.add_merkel_tree(*merkel_tree)
-	}
-
-	fmt.Println(blockchain.pretty_print())
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("Enter text: ")
+	reader.ReadString('\n')
 }

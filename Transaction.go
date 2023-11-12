@@ -1,12 +1,10 @@
 package main
 
-import "crypto/sha256"
-
 type Transaction struct {
-	__value    string
-	__not_null bool
+	Value    string
+	Not_Null bool
 }
 
-func (transaction *Transaction) hashed() Hash {
-	return Hash{__value: sha256.Sum256([]byte(transaction.__value))}
+func (transaction Transaction) hashed() Hash {
+	return hash_string(transaction.Value)
 }

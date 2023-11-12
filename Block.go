@@ -1,31 +1,31 @@
 package main
 
 type Block struct {
-	__merkel_root    Hash
-	__prev_block     Hash
-	__nonce          Hash
-	__trailing_zeros int
+	Merkel_Root    Hash
+	Prev_Block     Hash
+	Nonce          Hash
+	Trailing_Zeros int
 }
 
-func create_block(merkel_root Hash, prev_block Hash, trailing_zeros int) *Block {
-	return &Block{__merkel_root: merkel_root, __prev_block: prev_block, __trailing_zeros: trailing_zeros}
+func create_block(merkel_root Hash, prev_block Hash, trailing_zeros int) Block {
+	return Block{Merkel_Root: merkel_root, Prev_Block: prev_block, Trailing_Zeros: trailing_zeros}
 }
 
 func (block *Block) mine() {
 	for {
-		current_hash := concat_hash(block.__prev_block, block.__merkel_root, block.__nonce)
-		if current_hash.trailing_zeros() >= block.__trailing_zeros {
+		current_hash := concat_hash(block.Prev_Block, block.Merkel_Root, block.Nonce)
+		if current_hash.trailing_zeros() >= block.Trailing_Zeros {
 			break
 		}
-		block.__nonce = random_hash()
+		block.Nonce = random_hash()
 	}
 }
 
-func (block *Block) hashed() Hash {
-	return concat_hash(block.__prev_block, block.__merkel_root, block.__nonce)
+func (block Block) hashed() Hash {
+	return concat_hash(block.Prev_Block, block.Merkel_Root, block.Nonce)
 }
 
-func (block *Block) is_valid() bool {
+func (block Block) is_valid() bool {
 	current_hash := block.hashed()
-	return current_hash.trailing_zeros() >= block.__trailing_zeros
+	return current_hash.trailing_zeros() >= block.Trailing_Zeros
 }
