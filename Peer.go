@@ -157,14 +157,14 @@ func (peer *Peer) __drop_random_neighbours(count int) {
 func (peer *Peer) __propagate_transaction(transaction Transaction) {
 	packet_to_send := NetworkPacket{Req_Type: req_type_new_transaction, Req_From: peer.My_Address, Transaction: transaction}
 	for neighbour := range peer.Neighbours {
-		__send_request(packet_to_send, neighbour)
+		go __send_request(packet_to_send, neighbour)
 	}
 }
 
 func (peer *Peer) __propagate_block(block Block, merkel_tree MerkelTree) {
 	packet_to_send := NetworkPacket{Req_Type: req_type_new_block, Req_From: peer.My_Address, Block: block, Merkel_Tree: merkel_tree}
 	for neighbour := range peer.Neighbours {
-		__send_request(packet_to_send, neighbour)
+		go __send_request(packet_to_send, neighbour)
 	}
 }
 
@@ -258,7 +258,7 @@ func (peer *Peer) __evaluate_block_groups() {
 		} else {
 			packet_to_send := NetworkPacket{Req_Type: req_type_need_block, Req_From: peer.My_Address, Block_Hash: prev_hash}
 			for neighbour := range peer.Neighbours {
-				__send_request(packet_to_send, neighbour)
+				go __send_request(packet_to_send, neighbour)
 			}
 		}
 	}
@@ -310,7 +310,7 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 			packet_to_send := NetworkPacket{Req_Type: req_type_new_transaction, Req_From: peer.My_Address, Transaction: packet.Transaction}
 			for neighbour := range peer.Neighbours {
 				if neighbour != packet.Req_From {
-					__send_request(packet_to_send, neighbour) // propagate transaction to all neighbours except sender
+					go __send_request(packet_to_send, neighbour) // propagate transaction to all neighbours except sender
 				}
 			}
 		}
@@ -338,7 +338,7 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 		block, exists := peer.Blockchain.Blocks[packet.Block_Hash]
 		if exists {
 			packet_to_send := NetworkPacket{Req_Type: req_type_new_block, Req_From: peer.My_Address, Block: block, Merkel_Tree: peer.Merkel_Trees[block.Merkel_Root]}
-			__send_request(packet_to_send, packet.Req_From)
+			go __send_request(packet_to_send, packet.Req_From)
 		}
 		// fmt.Printf("Block request sent from %d to %d\n", peer.My_Address.Port, packet.Req_From.Port)
 	case req_type_need_ip_port_list:
@@ -346,7 +346,7 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 			network_members := get_map_keys(peer.Network_Members)
 			new_packet := NetworkPacket{Req_Type: req_type_ip_port_list, Req_From: peer.My_Address, Ip_Port_List: network_members}
 			peer.Network_Members[packet.Req_From] = time.Now().Unix()
-			__send_request(new_packet, packet.Req_From)
+			go __send_request(new_packet, packet.Req_From)
 		}
 	case req_type_ip_port_list:
 		if packet.Req_From == peer.Bootstrap_Address {
