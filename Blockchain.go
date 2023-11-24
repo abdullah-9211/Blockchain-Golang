@@ -2,11 +2,13 @@ package main
 
 import "fmt"
 
+// Type Blockchain holds an entire blockchain
 type Blockchain struct {
 	Blocks       map[Hash]Block
 	Merkel_Trees map[Hash]MerkelTree
 }
 
+// Blockchain's private method __calc_block_length_values maps each blocks hash to its distance from the genisys node
 func (blockchain *Blockchain) __calc_block_length_values() *map[Hash]int {
 	dp := make(map[Hash]int)
 	for block_hash := range blockchain.Blocks {
@@ -39,6 +41,7 @@ func (blockchain *Blockchain) __calc_block_length_values() *map[Hash]int {
 	return &dp
 }
 
+// function create_blockchain returns an empty blockchain
 func create_blockchain() Blockchain {
 	return Blockchain{Blocks: make(map[Hash]Block), Merkel_Trees: make(map[Hash]MerkelTree)}
 }
@@ -63,6 +66,7 @@ func (blockchain *Blockchain) remove_merkel_tree(merkel_tree MerkelTree) {
 	delete(blockchain.Merkel_Trees, merkel_tree_hash)
 }
 
+// Blockchain's method get_last_hash returns the hash of the block that is farthest from the genisys node
 func (blockchain Blockchain) get_last_hash() Hash {
 	if len(blockchain.Blocks) == 0 {
 		return Hash{}
@@ -79,6 +83,8 @@ func (blockchain Blockchain) get_last_hash() Hash {
 	return best_block.hashed()
 }
 
+// blockchain's method is_valid_blocks checks whether each block is itself valid and
+// all the blocks together make a single chain
 func (blockchain Blockchain) is_valid_blocks() bool {
 	dp := blockchain.__calc_block_length_values()
 	max_length := -1
@@ -94,6 +100,7 @@ func (blockchain Blockchain) is_valid_blocks() bool {
 	return max_length == len(blockchain.Blocks)
 }
 
+// Blockchain's method is_valid_merkel_trees checks whether all the merkel trees are valid
 func (blockchain Blockchain) is_valid_merkel_trees() bool {
 	for _, block := range blockchain.Blocks {
 		merkel_tree, ok := blockchain.Merkel_Trees[block.Merkel_Root]
@@ -108,6 +115,8 @@ func (blockchain Blockchain) is_valid() bool {
 	return blockchain.is_valid_blocks() && blockchain.is_valid_merkel_trees()
 }
 
+// blockchain's function remove_short_chains removes all the chains (along with their merkel trees)
+// starting from the genisys node except the longest one. has no effect if there is already a single chain
 func (blockchain *Blockchain) remove_short_chains() {
 	dp := blockchain.__calc_block_length_values()
 	max_length, best_block := -1, Block{}

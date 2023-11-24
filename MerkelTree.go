@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// type MerkelTreeNode holds information about either a leaf or non leaf node of a merkel tree
 type MerkelTreeNode struct {
 	Transaction Transaction
 	Self_Hash   Hash
@@ -20,6 +21,7 @@ func (merkel_tree_node MerkelTreeNode) hashed() Hash {
 	}
 }
 
+// Type MerkelTree stores a list of transactions in form of an tree in array form
 type MerkelTree struct {
 	Transactions map[Hash]Transaction
 	Tree         []MerkelTreeNode
@@ -63,6 +65,7 @@ func (merkel_tree MerkelTree) get_transactions() map[Hash]Transaction {
 	return merkel_tree.Transactions
 }
 
+// MerkelTree's function build creates the tree after all the transactions have been added
 func (merkel_tree *MerkelTree) build() {
 	if merkel_tree.Is_Built {
 		return
@@ -90,6 +93,10 @@ func (merkel_tree *MerkelTree) build() {
 	merkel_tree.Is_Built = true
 }
 
+// MerkelTree function is_valid determines whether the built merkel tree is valid.
+//
+// For a MerkelTree to be valid, the tree should be a perfect binary tree and hold
+// the property that all non leaf nodes have the hash value of their children's hash
 func (merkel_tree MerkelTree) is_valid() bool {
 	if !merkel_tree.Is_Built {
 		return false

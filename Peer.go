@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// type Peer holds all the information of a single peer
 type Peer struct {
 	Blockchain           Blockchain
 	Transactions         map[Hash]Transaction
@@ -25,6 +26,7 @@ type Peer struct {
 	Max_Neighbours       int
 }
 
+// function peer_main creates and simulates a peer according to the given input as configuration
 func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_miner bool, is_transaction_maker bool, bootstrap_address Address, transaction_per_block int, max_neighbours int) {
 
 	transaction_creation_channel := make(chan Transaction)
@@ -77,7 +79,7 @@ func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_m
 				ip_port_list := get_map_keys(peer.Network_Members)
 				peer.__try_add_neighbours(ip_port_list)
 			} else {
-				req_packet := create_network_packet(req_type_need_ip_port_list, peer.My_Address)
+				req_packet := NetworkPacket{Req_Type: req_type_need_ip_port_list, Req_From: peer.My_Address}
 				go __send_request(req_packet, bootstrap_address)
 			}
 			last_neighbour_req = time.Now().Unix()
@@ -146,6 +148,7 @@ func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_m
 	}
 }
 
+// Peer's method __drop_random_neighbours drops given number of random neighbours from the peer's neighbour list
 func (peer *Peer) __drop_random_neighbours(count int) {
 	ip_port_list := get_map_keys(peer.Neighbours)
 	indexes := rand.Perm(len(ip_port_list))
@@ -154,6 +157,7 @@ func (peer *Peer) __drop_random_neighbours(count int) {
 	}
 }
 
+// Peer's method __propagate_transaction sends the provided transaction to every neighbour of the peer
 func (peer *Peer) __propagate_transaction(transaction Transaction) {
 	packet_to_send := NetworkPacket{Req_Type: req_type_new_transaction, Req_From: peer.My_Address, Transaction: transaction}
 	for neighbour := range peer.Neighbours {
@@ -161,6 +165,7 @@ func (peer *Peer) __propagate_transaction(transaction Transaction) {
 	}
 }
 
+// Peer's method __propagate_block sends the provided block to every  neighbour of the peer
 func (peer *Peer) __propagate_block(block Block, merkel_tree MerkelTree) {
 	packet_to_send := NetworkPacket{Req_Type: req_type_new_block, Req_From: peer.My_Address, Block: block, Merkel_Tree: merkel_tree}
 	for neighbour := range peer.Neighbours {
@@ -168,7 +173,8 @@ func (peer *Peer) __propagate_block(block Block, merkel_tree MerkelTree) {
 	}
 }
 
-// extends blockchain with the given blocks and merkel trees. if the blockchain accepts the new blocks, return true else return false
+// Peer's method __extend_blockchain extends blockchain with the given blocks and merkel trees.
+// if the blockchain accepts the new blocks, return true else return false
 func (peer *Peer) __extend_blockchain(blocks []Block, merkel_trees []MerkelTree) bool {
 	if len(blocks) != len(merkel_trees) {
 		return false
@@ -221,6 +227,7 @@ func write_to_file(filename string, data string) {
 	file.Write([]byte(data))
 }
 
+// Peer's method __do_hello sends a hello to a neighbour if the time since the last hello was sent is >= timeout / 8
 func (peer *Peer) __do_hello(last_hello *map[Address]int64, timeout int64, target Address) {
 	last_hello_time, ok := (*last_hello)[target]
 	if !ok {
@@ -229,45 +236,65 @@ func (peer *Peer) __do_hello(last_hello *map[Address]int64, timeout int64, targe
 	if time.Now().Unix()-last_hello_time < timeout/8 {
 		return
 	}
-	packet_to_send := create_network_packet(req_type_hello, peer.My_Address)
+	packet_to_send := NetworkPacket{Req_Type: req_type_hello, Req_From: peer.My_Address}
 	go __send_request(packet_to_send, target)
 	(*last_hello)[target] = time.Now().Unix()
 }
 
+// Peer's method __evaluate_block_groups
 func (peer *Peer) __evaluate_block_groups() {
+
+	// block groups to remove
 	to_remove := make([]Hash, 0, len(peer.Block_Groups))
+
 	for prev_hash, blocks := range peer.Block_Groups {
+
+		// remove group if time since a block was added to it exceeds 60
 		if time.Now().Unix()-peer.Blocks[prev_hash] > 60 {
 			to_remove = append(to_remove, prev_hash)
 			continue
 		}
+
+		// checks whether the block group has a previous block in the blockchain and can thus, be added to the chain
 		_, in_chain := peer.Blockchain.Blocks[prev_hash]
 		if prev_hash == (Hash{}) {
 			in_chain = true
 		}
+
 		if in_chain {
+
+			// try adding block group to chain
 			blocks = reverse_slice(blocks)
 			merkel_trees := make([]MerkelTree, 0, len(blocks))
 			for _, block := range blocks {
 				merkel_trees = append(merkel_trees, peer.Merkel_Trees[block.Merkel_Root])
 			}
 			if peer.__extend_blockchain(blocks, merkel_trees) {
+				// propagate the block if the new block has made a change to the blockchain
 				peer.__propagate_block(blocks[len(blocks)-1], merkel_trees[len(merkel_trees)-1])
 			}
+
+			// remove the block group that was potentially added to chain
 			to_remove = append(to_remove, prev_hash)
+
 		} else {
+
+			// request the neighbours for the block that should come before the earliest block in the given block group
 			packet_to_send := NetworkPacket{Req_Type: req_type_need_block, Req_From: peer.My_Address, Block_Hash: prev_hash}
 			for neighbour := range peer.Neighbours {
 				go __send_request(packet_to_send, neighbour)
 			}
 		}
 	}
+
+	// remove block groups that are required to be removed
 	for _, prev_hash := range to_remove {
 		delete(peer.Block_Groups, prev_hash)
 		delete(peer.Blocks, prev_hash)
 	}
 }
 
+// Peer's method __try_add_neighbours sends neighbour connection request to random peers in the given list
 func (peer *Peer) __try_add_neighbours(ip_port_list []Address) {
 	need_neighbours := max(0, peer.Max_Neighbours-len(peer.Neighbours)-2) // two reserved for anyone who wants to connect to this peer
 	indexes := rand.Perm(len(ip_port_list))
@@ -288,15 +315,16 @@ func (peer *Peer) __try_add_neighbours(ip_port_list []Address) {
 	}
 }
 
+// Peer's method __handle_network_packet deals with the given packet as per requirement
 func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 	_, in_neighbours := peer.Neighbours[packet.Req_From]
 	switch packet.Req_Type {
 	case req_type_new_connection:
 		if len(peer.Neighbours) < peer.Max_Neighbours {
 			peer.Neighbours[packet.Req_From] = time.Now().Unix()
-			go __send_request(create_network_packet(req_type_accept_connection, peer.My_Address), packet.Req_From)
+			go __send_request(NetworkPacket{Req_Type: req_type_accept_connection, Req_From: peer.My_Address}, packet.Req_From)
 		} else {
-			go __send_request(create_network_packet(req_type_reject_connection, peer.My_Address), packet.Req_From)
+			go __send_request(NetworkPacket{Req_Type: req_type_reject_connection, Req_From: peer.My_Address}, packet.Req_From)
 		}
 	case req_type_accept_connection:
 		peer.Neighbours[packet.Req_From] = time.Now().Unix()
@@ -360,7 +388,7 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 			if peer.Is_Bootstrap {
 				peer.Network_Members[packet.Req_From] = time.Now().Unix()
 			}
-			go __send_request(create_network_packet(req_type_hi, peer.My_Address), packet.Req_From)
+			go __send_request(NetworkPacket{Req_Type: req_type_hi, Req_From: peer.My_Address}, packet.Req_From)
 		}
 		// fmt.Printf("Hello from %d to %d new value: %d\n", packet.Req_From.Port, peer.My_Address.Port, time.Now().Unix())
 	case req_type_hi:
@@ -376,6 +404,8 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 	}
 }
 
+// function __transaction_creator runs infinitely and creates a random transaction after a random interval and
+// sends it to the channel that was passed to this function as a input
 func __transaction_creator(up_channel chan<- Transaction) {
 	var second int64 = 1000000000
 	for {
@@ -385,6 +415,8 @@ func __transaction_creator(up_channel chan<- Transaction) {
 	}
 }
 
+// function __mine_new_block uses the given transactions, prev_hash value, and trailing_zeros count to create a new block
+// and mine a valid nonce value. once complete, the block is written to the channel that was passed to this function as input
 func __mine_new_block(up_channel chan<- struct {
 	Block
 	MerkelTree
@@ -402,6 +434,7 @@ func __mine_new_block(up_channel chan<- struct {
 	}{block, merkel_tree}
 }
 
+// function __listen listens a given address and writes any packet it recieves to the channel that was passed to it as input
 func __listen(up_channel chan<- NetworkPacket, address Address) {
 	ln, err := net.Listen("tcp", address.to_string())
 	if err != nil {
@@ -419,6 +452,7 @@ func __listen(up_channel chan<- NetworkPacket, address Address) {
 	}
 }
 
+// function send request sends the given network packet to the given target address from a random port
 func __send_request(network_packet NetworkPacket, target Address) {
 	conn, err := net.Dial("tcp", target.to_string())
 	if err != nil {
@@ -434,6 +468,8 @@ func __send_request(network_packet NetworkPacket, target Address) {
 	conn.Close()
 }
 
+// function receive request uses a connection and receives the network packet sent on it. this is then written to
+// channel that is passed to it as input
 func __receive_request(up_channel chan<- NetworkPacket, conn net.Conn) {
 	dec := gob.NewDecoder(conn)
 	network_packet := &NetworkPacket{}

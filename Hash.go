@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 )
 
+// Type Hash holds a hash
 type Hash struct {
 	Value [32]byte
 }
@@ -13,6 +14,7 @@ func hash_string(value string) Hash {
 	return Hash{Value: sha256.Sum256([]byte(value))}
 }
 
+// Hash's method to_string converts the hash value to hexadecimal string
 func (hash Hash) to_string() string {
 	return hex.EncodeToString(hash.Value[:])
 }
@@ -32,6 +34,7 @@ func (hash Hash) trailing_zeros() int {
 	return count
 }
 
+// function concat_hash concats the given input and hashes the concatenation to return a new hash
 func concat_hash(elements ...Hash) Hash {
 	acc := make([]byte, 0, 32*len(elements))
 	for _, element := range elements {

@@ -18,6 +18,7 @@ const (
 	req_type_hi                = iota
 )
 
+// type Address holds a single network address
 type Address struct {
 	Ip   uint32
 	Port uint16
@@ -30,6 +31,7 @@ func (address Address) to_string() string {
 	return fmt.Sprintf("%d:%d", address.Ip, address.Port)
 }
 
+// type NetworkPacket holds a single network packet
 type NetworkPacket struct {
 	Req_Type     int
 	Req_From     Address // ip and port number
@@ -38,8 +40,4 @@ type NetworkPacket struct {
 	Merkel_Tree  MerkelTree
 	Ip_Port_List []Address
 	Block_Hash   Hash
-}
-
-func create_network_packet(req_type int, req_from Address) NetworkPacket {
-	return NetworkPacket{Req_Type: req_type, Req_From: req_from}
 }
