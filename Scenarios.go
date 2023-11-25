@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-func handle_reports(report chan ReportToMain, to_print []int) {
+// function handle_reports reads the channel ReportToMain and prints (either to console or file) the report types provided in to_print
+func handle_reports(report <-chan ReportToMain, to_print []int) {
 	set := uint64(0)
 	for _, value := range to_print {
 		set |= (1 << value)
@@ -81,6 +82,8 @@ func handle_reports(report chan ReportToMain, to_print []int) {
 	}
 }
 
+// function scenario_connection_control shows a scenario where the changes in connections for each peer as
+// new peers change or existing peers leave
 func scenario_connection_control() {
 
 	reports := make(chan ReportToMain, 100)
@@ -132,6 +135,8 @@ func scenario_connection_control() {
 	reader.ReadString('\n')
 }
 
+// function scenario_blockchain_observation shows a scenario where a fully functional network is working as expected. there are multiple
+// miners and multiple transaction creators and the entire network is converging towards having a single blockchain
 func scenario_blockchain_observation() {
 
 	reports := make(chan ReportToMain, 100)
@@ -184,6 +189,8 @@ func scenario_blockchain_observation() {
 	reader.ReadString('\n')
 }
 
+// function scenario_blockchain_bad_node shows a scenario where all the nodes are working as expected except a single node which
+// is a miner who does not accept blocks of other nodes but propagates its own blocks as it mines.
 func scenario_blockchain_bad_node() {
 
 	reports := make(chan ReportToMain, 100)

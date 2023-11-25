@@ -89,6 +89,8 @@ func peer_main(pc PeerConfig) {
 	for {
 		if time.Now().Unix()-last_print > 5 {
 			last_print = time.Now().Unix()
+
+			// report current active neighbours to main
 			pc.Up_Channel <- ReportToMain{
 				Source_Address: peer.My_Address,
 				Report_Type:    report_type_connections,
@@ -158,6 +160,7 @@ func peer_main(pc PeerConfig) {
 				break
 			}
 
+			// report that a new transaction was created
 			pc.Up_Channel <- ReportToMain{
 				Source_Address: peer.My_Address,
 				Report_Type:    report_type_transaction_created,
@@ -178,6 +181,7 @@ func peer_main(pc PeerConfig) {
 				break
 			}
 
+			// report that new block was mined
 			pc.Up_Channel <- ReportToMain{
 				Source_Address: peer.My_Address,
 				Report_Type:    report_type_block_mined,
@@ -197,6 +201,7 @@ func peer_main(pc PeerConfig) {
 		time.Sleep(time.Microsecond * 100)
 
 		if pc.Die_After != -1 && time.Now().Unix()-init_time >= pc.Die_After {
+			// kill itself if the die after configuration is not -1 and the given time has passed
 			fmt.Printf("Port %d left the network!\n", peer.My_Address.Port)
 			return
 		}
@@ -266,12 +271,14 @@ func (peer *Peer) __extend_blockchain(blocks []Block, merkel_trees []MerkelTree)
 	}
 	peer.Transactions = pruned_transactions
 
+	// report a change in blockchain to main
 	peer.pc.Up_Channel <- ReportToMain{
 		Source_Address: peer.My_Address,
 		Report_Type:    report_type_blockchain_updated,
 		Report_Body:    "",
 	}
 
+	// report the new state of blockchain to main
 	peer.pc.Up_Channel <- ReportToMain{
 		Source_Address: peer.My_Address,
 		Report_Type:    report_type_entire_blockchain,
@@ -351,7 +358,7 @@ func (peer *Peer) __evaluate_block_groups(last_block_request *int64) {
 
 // Peer's method __try_add_neighbours sends neighbour connection request to random peers in the given list
 func (peer *Peer) __try_add_neighbours(ip_port_list []Address) {
-	need_neighbours := max(0, peer.Max_Neighbours-len(peer.Neighbours)-2) // one reserved for anyone who wants to connect to this peer
+	need_neighbours := max(0, peer.Max_Neighbours-len(peer.Neighbours)-2) // two reserved for anyone who wants to connect to this peer
 	indexes := rand.Perm(len(ip_port_list))
 	for _, index := range indexes {
 		if need_neighbours == 0 {
@@ -397,6 +404,7 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 				}
 			}
 
+			// report that a new transaction has been received
 			peer.pc.Up_Channel <- ReportToMain{
 				Source_Address: peer.My_Address,
 				Report_Type:    report_type_received_transaction,
@@ -424,6 +432,7 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 		peer.Block_Groups[packet.Block.Prev_Block] = prev_data
 		peer.Blocks[packet.Block.Prev_Block] = time.Now().Unix()
 
+		// report that a new block has been received
 		peer.pc.Up_Channel <- ReportToMain{
 			Source_Address: peer.My_Address,
 			Report_Type:    report_type_received_block,

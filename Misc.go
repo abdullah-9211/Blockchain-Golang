@@ -87,10 +87,12 @@ func reverse_slice[T comparable](myslice []T) []T {
 	return myslice
 }
 
+// function bit_is_set returns true if the bit'th bit is set in num
 func bit_is_set(num uint64, bit int) bool {
 	return ((num >> bit) & 1) == 1
 }
 
+// function write_to_file writes the data in the given file deleting any existing content in it
 func write_to_file(filename string, data string) {
 	file, _ := os.Create(filename)
 	defer file.Close()
