@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"math/big"
+	"os"
 
 	"golang.org/x/exp/constraints"
 )
@@ -84,4 +85,14 @@ func reverse_slice[T comparable](myslice []T) []T {
 		myslice[i], myslice[len(myslice)-i-1] = myslice[len(myslice)-i-1], myslice[i]
 	}
 	return myslice
+}
+
+func bit_is_set(num uint64, bit int) bool {
+	return ((num >> bit) & 1) == 1
+}
+
+func write_to_file(filename string, data string) {
+	file, _ := os.Create(filename)
+	defer file.Close()
+	file.Write([]byte(data))
 }

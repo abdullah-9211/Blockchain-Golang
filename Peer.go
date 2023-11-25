@@ -5,9 +5,41 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"os"
 	"time"
 )
+
+// Enum to represent the type of report being set to peer's caller function
+const (
+	report_type_connections          = iota
+	report_type_transaction_created  = iota
+	report_type_block_mined          = iota
+	report_type_received_transaction = iota
+	report_type_received_block       = iota
+	report_type_blockchain_updated   = iota
+	report_type_entire_blockchain    = iota
+)
+
+// Type ReportToMain holds the information a peer sends to its calling function
+type ReportToMain struct {
+	Source_Address Address
+	Report_Type    int
+	Report_Body    string
+}
+
+// Type PeerConfig holds the settings of a peer passed to peer_main function
+type PeerConfig struct {
+	Self_Address          Address
+	Trailing_Zeros        int
+	Is_Bootstrap          bool
+	Is_Miner              bool
+	Is_Transaction_Maker  bool
+	Bootstrap_Address     Address
+	Transaction_Per_Block int
+	Max_Neighbours        int
+	Die_After             int64
+	Up_Channel            chan ReportToMain
+	Is_Bad_Node           bool
+}
 
 // type Peer holds all the information of a single peer
 type Peer struct {
@@ -24,30 +56,32 @@ type Peer struct {
 	Neighbours           map[Address]int64 // {address: last contacted}
 	Bootstrap_Address    Address
 	Max_Neighbours       int
+	pc                   PeerConfig
 }
 
 // function peer_main creates and simulates a peer according to the given input as configuration
-func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_miner bool, is_transaction_maker bool, bootstrap_address Address, transaction_per_block int, max_neighbours int) {
+func peer_main(pc PeerConfig) {
 
 	transaction_creation_channel := make(chan Transaction)
 	block_mine_channel := make(chan struct {
 		Block
 		MerkelTree
 	})
-	network_packet_channel := make(chan NetworkPacket, 10)
+	network_packet_channel := make(chan NetworkPacket, 1)
 
+	init_time := time.Now().Unix()
 	is_mining := false
 	last_neighbour_req := int64(0)
 	neighbour_req_timeout := int64(10)
 	last_hello := make(map[Address]int64)
 	timeout := int64(15) // network members need to communicate once every timeout seconds to stay in network
+	last_block_request := int64(0)
 
-	peer := Peer{Blockchain: create_blockchain(), My_Address: self_address, Is_Bootstrap: is_bootstrap, Is_Miner: is_miner, Is_Transaction_Maker: is_transaction_maker, Bootstrap_Address: bootstrap_address, Max_Neighbours: max_neighbours, Network_Members: make(map[Address]int64), Neighbours: make(map[Address]int64), Transactions: make(map[Hash]Transaction), Block_Groups: make(map[Hash][]Block), Blocks: make(map[Hash]int64), Merkel_Trees: make(map[Hash]MerkelTree)}
+	peer := Peer{Blockchain: create_blockchain(), My_Address: pc.Self_Address, Is_Bootstrap: pc.Is_Bootstrap, Is_Miner: pc.Is_Miner, Is_Transaction_Maker: pc.Is_Transaction_Maker, Bootstrap_Address: pc.Bootstrap_Address, Max_Neighbours: pc.Max_Neighbours, Network_Members: make(map[Address]int64), Neighbours: make(map[Address]int64), Transactions: make(map[Hash]Transaction), Block_Groups: make(map[Hash][]Block), Blocks: make(map[Hash]int64), Merkel_Trees: make(map[Hash]MerkelTree), pc: pc}
 
 	go __listen(network_packet_channel, peer.My_Address) // start listening
 
-	if is_transaction_maker {
-		// fmt.Println("Transaction Creator Initiation!")
+	if pc.Is_Transaction_Maker {
 		go __transaction_creator(transaction_creation_channel)
 	}
 
@@ -55,7 +89,10 @@ func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_m
 	for {
 		if time.Now().Unix()-last_print > 5 {
 			last_print = time.Now().Unix()
-			// fmt.Println(peer.My_Address, peer.Neighbours, get_map_values(peer.Transactions))
+			pc.Up_Channel <- ReportToMain{
+				Source_Address: peer.My_Address,
+				Report_Type:    report_type_connections,
+				Report_Body:    fmt.Sprintf("%v", peer.Neighbours)}
 		}
 
 		// check if any node has left network
@@ -80,7 +117,7 @@ func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_m
 				peer.__try_add_neighbours(ip_port_list)
 			} else {
 				req_packet := NetworkPacket{Req_Type: req_type_need_ip_port_list, Req_From: peer.My_Address}
-				go __send_request(req_packet, bootstrap_address)
+				go __send_request(req_packet, pc.Bootstrap_Address)
 			}
 			last_neighbour_req = time.Now().Unix()
 		}
@@ -100,9 +137,8 @@ func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_m
 		}
 
 		// start mining if peer is miner and transaction count sufficient
-		if !is_mining && peer.Is_Miner && len(peer.Transactions) >= transaction_per_block {
-			// fmt.Println("Mining New Block!")
-			go __mine_new_block(block_mine_channel, get_map_values(peer.Transactions)[:transaction_per_block], peer.Blockchain.get_last_hash(), trailing_zeros)
+		if !is_mining && peer.Is_Miner && len(peer.Transactions) >= pc.Transaction_Per_Block {
+			go __mine_new_block(block_mine_channel, get_map_values(peer.Transactions)[:pc.Transaction_Per_Block], peer.Blockchain.get_last_hash(), pc.Trailing_Zeros)
 			is_mining = true
 		}
 
@@ -121,7 +157,13 @@ func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_m
 			if !ok {
 				break
 			}
-			// fmt.Printf("New transaction received: %s\n", transaction.Value)
+
+			pc.Up_Channel <- ReportToMain{
+				Source_Address: peer.My_Address,
+				Report_Type:    report_type_transaction_created,
+				Report_Body:    fmt.Sprintf("%v", transaction.Value),
+			}
+
 			peer.Transactions[transaction.hashed()] = transaction
 			peer.__propagate_transaction(transaction)
 		}
@@ -135,16 +177,30 @@ func peer_main(self_address Address, trailing_zeros int, is_bootstrap bool, is_m
 			if !ok {
 				break
 			}
+
+			pc.Up_Channel <- ReportToMain{
+				Source_Address: peer.My_Address,
+				Report_Type:    report_type_block_mined,
+				Report_Body:    fmt.Sprintf("%v", pair.Block.hashed().to_string()),
+			}
+
 			if peer.__extend_blockchain([]Block{pair.Block}, []MerkelTree{pair.MerkelTree}) {
 				peer.__propagate_block(pair.Block, pair.MerkelTree)
 			}
+
 			is_mining = false
 		}
 
-		peer.__evaluate_block_groups() // received blocks always make a group which is then either added or not added to blockchain
+		peer.__evaluate_block_groups(&last_block_request) // received blocks always make a group which is then either added or not added to blockchain
 
 		// sleep to reduce load on cpu
 		time.Sleep(time.Microsecond * 100)
+
+		if pc.Die_After != -1 && time.Now().Unix()-init_time >= pc.Die_After {
+			fmt.Printf("Port %d left the network!\n", peer.My_Address.Port)
+			return
+		}
+
 	}
 }
 
@@ -210,21 +266,19 @@ func (peer *Peer) __extend_blockchain(blocks []Block, merkel_trees []MerkelTree)
 	}
 	peer.Transactions = pruned_transactions
 
-	// write_to_file(fmt.Sprintf("blockchain%d.txt", peer.My_Address.Port), peer.Blockchain.pretty_print())
-	// if peer.Is_Bootstrap {
-	// 	fmt.Println(peer.Blockchain.pretty_print())
-	// }
-	return true
-}
-
-func write_to_file(filename string, data string) {
-	file, err := os.OpenFile(filename, os.O_WRONLY, 0644)
-	if os.IsNotExist(err) {
-		file, _ = os.Create(filename)
+	peer.pc.Up_Channel <- ReportToMain{
+		Source_Address: peer.My_Address,
+		Report_Type:    report_type_blockchain_updated,
+		Report_Body:    "",
 	}
-	defer file.Close()
 
-	file.Write([]byte(data))
+	peer.pc.Up_Channel <- ReportToMain{
+		Source_Address: peer.My_Address,
+		Report_Type:    report_type_entire_blockchain,
+		Report_Body:    peer.Blockchain.pretty_print(),
+	}
+
+	return true
 }
 
 // Peer's method __do_hello sends a hello to a neighbour if the time since the last hello was sent is >= timeout / 8
@@ -242,7 +296,7 @@ func (peer *Peer) __do_hello(last_hello *map[Address]int64, timeout int64, targe
 }
 
 // Peer's method __evaluate_block_groups
-func (peer *Peer) __evaluate_block_groups() {
+func (peer *Peer) __evaluate_block_groups(last_block_request *int64) {
 
 	// block groups to remove
 	to_remove := make([]Hash, 0, len(peer.Block_Groups))
@@ -277,13 +331,14 @@ func (peer *Peer) __evaluate_block_groups() {
 			// remove the block group that was potentially added to chain
 			to_remove = append(to_remove, prev_hash)
 
-		} else {
+		} else if time.Now().Unix()-*last_block_request > 0 {
 
 			// request the neighbours for the block that should come before the earliest block in the given block group
 			packet_to_send := NetworkPacket{Req_Type: req_type_need_block, Req_From: peer.My_Address, Block_Hash: prev_hash}
 			for neighbour := range peer.Neighbours {
 				go __send_request(packet_to_send, neighbour)
 			}
+			*last_block_request = time.Now().Unix()
 		}
 	}
 
@@ -296,7 +351,7 @@ func (peer *Peer) __evaluate_block_groups() {
 
 // Peer's method __try_add_neighbours sends neighbour connection request to random peers in the given list
 func (peer *Peer) __try_add_neighbours(ip_port_list []Address) {
-	need_neighbours := max(0, peer.Max_Neighbours-len(peer.Neighbours)-2) // two reserved for anyone who wants to connect to this peer
+	need_neighbours := max(0, peer.Max_Neighbours-len(peer.Neighbours)-2) // one reserved for anyone who wants to connect to this peer
 	indexes := rand.Perm(len(ip_port_list))
 	for _, index := range indexes {
 		if need_neighbours == 0 {
@@ -341,12 +396,19 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 					go __send_request(packet_to_send, neighbour) // propagate transaction to all neighbours except sender
 				}
 			}
+
+			peer.pc.Up_Channel <- ReportToMain{
+				Source_Address: peer.My_Address,
+				Report_Type:    report_type_received_transaction,
+				Report_Body:    fmt.Sprintf("%v from %v", packet.Transaction.Value, packet.Req_From),
+			}
+
 		}
 	case req_type_new_block:
 		if !in_neighbours {
 			return
 		}
-		if !packet.Block.is_valid() || !packet.Merkel_Tree.is_valid() {
+		if peer.pc.Is_Bad_Node || packet.Block.Trailing_Zeros < peer.pc.Trailing_Zeros || !packet.Block.is_valid() || !packet.Merkel_Tree.is_valid() {
 			return
 		}
 		block_hash := packet.Block.hashed()
@@ -361,14 +423,18 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 		peer.Merkel_Trees[packet.Merkel_Tree.hashed()] = packet.Merkel_Tree
 		peer.Block_Groups[packet.Block.Prev_Block] = prev_data
 		peer.Blocks[packet.Block.Prev_Block] = time.Now().Unix()
-		// fmt.Printf("Block sent from %d to %d\n", packet.Req_From.Port, peer.My_Address.Port)
+
+		peer.pc.Up_Channel <- ReportToMain{
+			Source_Address: peer.My_Address,
+			Report_Type:    report_type_received_block,
+			Report_Body:    fmt.Sprintf("%v from %v", packet.Block.hashed().to_string(), packet.Req_From),
+		}
 	case req_type_need_block:
 		block, exists := peer.Blockchain.Blocks[packet.Block_Hash]
 		if exists {
 			packet_to_send := NetworkPacket{Req_Type: req_type_new_block, Req_From: peer.My_Address, Block: block, Merkel_Tree: peer.Merkel_Trees[block.Merkel_Root]}
 			go __send_request(packet_to_send, packet.Req_From)
 		}
-		// fmt.Printf("Block request sent from %d to %d\n", peer.My_Address.Port, packet.Req_From.Port)
 	case req_type_need_ip_port_list:
 		if peer.Is_Bootstrap {
 			network_members := get_map_keys(peer.Network_Members)
@@ -390,7 +456,6 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 			}
 			go __send_request(NetworkPacket{Req_Type: req_type_hi, Req_From: peer.My_Address}, packet.Req_From)
 		}
-		// fmt.Printf("Hello from %d to %d new value: %d\n", packet.Req_From.Port, peer.My_Address.Port, time.Now().Unix())
 	case req_type_hi:
 		if in_neighbours || packet.Req_From == peer.Bootstrap_Address || peer.Is_Bootstrap {
 			if in_neighbours {
@@ -400,7 +465,6 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 				peer.Network_Members[packet.Req_From] = time.Now().Unix()
 			}
 		}
-		// fmt.Printf("Hi from %d to %d new value: %d\n", packet.Req_From.Port, peer.My_Address.Port, time.Now().Unix())
 	}
 }
 
@@ -409,7 +473,7 @@ func (peer *Peer) __handle_network_packet(packet *NetworkPacket) {
 func __transaction_creator(up_channel chan<- Transaction) {
 	var second int64 = 1000000000
 	for {
-		time.Sleep(time.Duration(random_int(2*second, 3*second)))
+		time.Sleep(time.Duration(random_int(2*second, 8*second)))
 		transaction := Transaction{Value: random_string(15), Not_Null: true}
 		up_channel <- transaction
 	}
@@ -439,13 +503,11 @@ func __listen(up_channel chan<- NetworkPacket, address Address) {
 	ln, err := net.Listen("tcp", address.to_string())
 	if err != nil {
 		fmt.Println("Error starting listening", err)
-		// TODO: handle error
 	}
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Printf("Network Listen at %d failed\n", address.Port)
-			// TODO: handle error
 			continue
 		}
 		go __receive_request(up_channel, conn)
@@ -456,15 +518,11 @@ func __listen(up_channel chan<- NetworkPacket, address Address) {
 func __send_request(network_packet NetworkPacket, target Address) {
 	conn, err := net.Dial("tcp", target.to_string())
 	if err != nil {
-		fmt.Printf("Network Dial from %d to %d failed\n", network_packet.Req_From.Port, target.Port)
-		// TODO: handle error
+		fmt.Printf("Network Dial from %d to %d failed: %v\n", network_packet.Req_From.Port, target.Port, err)
 		return
 	}
 	encoder := gob.NewEncoder(conn)
 	encoder.Encode(&network_packet)
-	// fmt.Println("Request sent to : ", conn.RemoteAddr().String())
-	// fmt.Println("Request sent by: ", conn.LocalAddr().String())
-	// fmt.Println("Packet sent: ", network_packet)
 	conn.Close()
 }
 
@@ -474,9 +532,6 @@ func __receive_request(up_channel chan<- NetworkPacket, conn net.Conn) {
 	dec := gob.NewDecoder(conn)
 	network_packet := &NetworkPacket{}
 	dec.Decode(&network_packet)
-	// fmt.Println("Request received from: ", conn.RemoteAddr().String())
-	// fmt.Println("Request received by: ", conn.LocalAddr().String())
-	// fmt.Println("Packet received: ", *network_packet)
 	up_channel <- *network_packet
 	conn.Close()
 }

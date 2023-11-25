@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 // Type Block holds the information for a single block
 type Block struct {
 	Merkel_Root    Hash
@@ -32,3 +34,16 @@ func (block Block) is_valid() bool {
 	current_hash := block.hashed()
 	return current_hash.trailing_zeros() >= block.Trailing_Zeros
 }
+
+func (block Block) pretty_print() string {
+	return fmt.Sprintf("Merkel_Root: %v\nPrev_Block: %v\nNonce: %v\nTrailing_Zeros: %v\n",
+		block.Merkel_Root.to_string(),
+		block.Prev_Block.to_string(),
+		block.Nonce.to_string(),
+		block.Trailing_Zeros)
+}
+
+// Merkel_Root    Hash
+// Prev_Block     Hash
+// Nonce          Hash
+// Trailing_Zeros int
